@@ -28,26 +28,150 @@ app.get('/api/seed', async (req, res) => {
         res.status(401).send({ result: "failure", error: err.message });
     }
 });
-
-app.get('/api/transactions', (req, res) => {
-    res.send({});
+app.get('/api/transactions', async (req, res) => {
+    let { page, limit, search, month } = req.query;
+    page = Number(page);
+    page = page && Number.isInteger(page) && page > 0 ? page : 1;
+    limit = Number(limit);
+    limit = limit && Number.isInteger(limit) && limit <= 50 ? limit : 10;
+    let query = {};
+    if (month) {
+        query.dateOfSale = { $regex: `-${month}-` };
+    }
+    if (search) {
+        query.$or = [
+            { title: { $regex: search, $options: 'i' } },
+            { description: { $regex: search, $options: 'i' } },
+        ];
+    }
+    const transactions = await ProductTransaction.find(query)
+        .skip((page - 1) * limit)
+        .limit(limit);
+    res.send(transactions);
 });
 
-app.get('/api/statistics', (req, res) => {
-    res.send({});
+app.get('/api/statistics', async (req, res) => {
+    let { month } = req.query;
+    month = Number(month);
+    const salesData = await ProductTransaction.aggregate(
+        [
+            {
+                $match: {
+                    $expr: {
+                        $eq: [
+                            {
+                                $month: "$dateOfSale",
+                            },
+                            month,
+                        ],
+                    },
+                },
+            },
+            {
+                $group: {
+                    _id: null,
+                    total_price: {
+                        $sum: "$price",
+                    },
+                    sold_quantity: {
+                        $sum: {
+                            $cond: ["$sold", 1, 0],
+                        },
+                    },
+                    not_sold_quantity: {
+                        $sum: {
+                            $cond: ["$sold", 0, 1],
+                        },
+                    },
+                },
+            },
+        ]
+    );
+    res.send(salesData.length ? salesData[0] : { sale: 0, soldQuantity: 0, notSoldQuantity: 0 });
 });
 
-app.get('/api/item_range', (req, res) => {
-    res.send({});
+app.get('/api/item_range', async (req, res) => {
+    const { month } = req.query;
+    const monthNumber = Number(month);
+
+    // Validate month input
+    if (isNaN(monthNumber) || monthNumber < 1 || monthNumber > 12) {
+        return res.status(400).send({ error: 'Invalid month' });
+    }
+
+    const ranges = [
+        { range: "0-100", min: 0, max: 100 },
+        { range: "101-200", min: 101, max: 200 },
+        { range: "201-300", min: 201, max: 300 },
+        { range: "301-400", min: 301, max: 400 },
+        { range: "401-500", min: 401, max: 500 },
+        { range: "501-600", min: 501, max: 600 },
+        { range: "601-700", min: 601, max: 700 },
+        { range: "701-800", min: 701, max: 800 },
+        { range: "801-900", min: 801, max: 900 },
+        { range: "901-above", min: 901 }
+    ];
+
+    const results = await Promise.all(ranges.map(async (r) => {
+        const filter = {
+            price: { $gte: r.min, $lt: r.max || Infinity },
+            $expr: { $eq: [{ $month: "$dateOfSale" }, monthNumber] }
+        };
+        const count = await ProductTransaction.countDocuments(filter);
+        return { range: r.range, items: count };
+    }));
+
+    res.send(results);
+});
+app.get('/api/category_items', async (req, res) => {
+    let { month } = req.query;
+    month = Number(month);
+    const categories = await ProductTransaction.aggregate([
+        {
+            $match: {
+                $expr: {
+                    $eq: [
+                        {
+                            $month: "$dateOfSale",
+                        },
+                        month,
+                    ],
+                },
+            },
+        }, { $group: { _id: "$category", count: { $sum: 1 } } }
+    ]);
+    console.log(categories);
+    const response = {};
+    categories.forEach(cat => {
+        response[cat._id] = cat.count;
+    });
+    res.send(response);
 });
 
-app.get('/api/category_items', (req, res) => {
-    res.send({});
+app.get('/api/combined', async (req, res) => {
+    const { month } = req.query;
+    try {
+        const statisticsResponse = await fetch(`${SERVER_URL}/api/statistics?month=${month}`);
+        const statistics = await statisticsResponse.json();
+
+        const itemRangeResponse = await fetch(`${SERVER_URL}/api/item_range?month=${month}`);
+        const itemRanges = await itemRangeResponse.json();
+
+        const categoryItemsResponse = await fetch(`${SERVER_URL}/api/category_items?month=${month}`);
+        const categoryItems = await categoryItemsResponse.json();
+
+        const combinedResponse = {
+            ...statistics,
+            ...categoryItems,
+            item_ranges: itemRanges
+        };
+        res.send(combinedResponse);
+    } catch (error) {
+        console.error("Error fetching combined data:", error);
+        res.status(500).send({ error: "Error fetching combined data" });
+    }
 });
 
-app.get('/api/combined', (req, res) => {
-    res.send({});
-});
 
 database.connect().then(() => {
     console.log("connected to mongo");
