@@ -29,27 +29,54 @@ app.get('/api/seed', async (req, res) => {
     }
 });
 app.get('/api/transactions', async (req, res) => {
-    let { page, limit, search, month } = req.query;
-    page = Number(page);
-    page = page && Number.isInteger(page) && page > 0 ? page : 1;
-    limit = Number(limit);
-    limit = limit && Number.isInteger(limit) && limit <= 50 ? limit : 10;
-    let query = {};
-    if (month) {
-        query.dateOfSale = { $regex: `-${month}-` };
+    const { page, limit, search, month } = req.query;
+  
+    const pageNumber = Number(page);
+    const limitNumber = Number(limit);
+    const monthNumber = Number(month);
+  
+    if (pageNumber && (!Number.isInteger(pageNumber) || pageNumber <= 0)) {
+      return res.status(400).send({ error: 'Invalid page number' });
     }
+    if (limitNumber && (!Number.isInteger(limitNumber) || limitNumber <= 0 || limitNumber > 50)) {
+      return res.status(400).send({ error: 'Invalid limit' });
+    }
+    if (monthNumber && (!Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12)) {
+      return res.status(400).send({ error: 'Invalid month' });
+    }
+  
+    const currentPage = pageNumber || 1;
+    const currentLimit = limitNumber || 10;
+  
+    const query = {};
     if (search) {
-        query.$or = [
-            { title: { $regex: search, $options: 'i' } },
-            { description: { $regex: search, $options: 'i' } },
-        ];
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+      ];
     }
-    const transactions = await ProductTransaction.find(query)
-        .skip((page - 1) * limit)
-        .limit(limit);
-    res.send(transactions);
-});
-
+  
+    try {
+      const transactions = await ProductTransaction.aggregate([
+        {
+          $match: {
+            ...query,
+            $expr: { $eq: [{ $month: "$dateOfSale" }, monthNumber] },
+          },
+        },
+        {
+          $skip: (currentPage - 1) * currentLimit,
+        },
+        {
+          $limit: currentLimit,
+        },
+      ]);
+      res.send(transactions);
+    } catch (error) {
+      console.error(error);
+      res.status(500).send({ error: 'Internal Server Error' });
+    }
+  });
 app.get('/api/statistics', async (req, res) => {
     let { month } = req.query;
     month = Number(month);
