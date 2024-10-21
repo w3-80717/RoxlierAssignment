@@ -12,27 +12,27 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/api/seed', (req, res) => {
-    res.ok({});
+    res.send({});
 });
 
 app.get('/api/transactions', (req, res) => {
-    res.ok({});
+    res.send({});
 });
 
 app.get('/api/statistics', (req, res) => {
-    res.ok({});
+    res.send({});
 });
 
 app.get('/api/item_range', (req, res) => {
-    res.ok({});
+    res.send({});
 });
 
 app.get('/api/category_items', (req, res) => {
-    res.ok({});
+    res.send({});
 });
 
 app.get('/api/combined', (req, res) => {
-    res.ok({});
+    res.send({});
 });
 
 database.connect().then(() => {
